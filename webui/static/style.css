@@ -1,0 +1,125 @@
+:root{
+  --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+  --fg:#e6e9ef; --dim:#8b93a3; --accent:#4ea1ff; --ok:#3ddc84;
+  --warn:#ffb020; --err:#ff5c5c;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+}
+header{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 20px; border-bottom:1px solid var(--line); background:var(--panel);
+}
+h1{font-size:16px; margin:0; font-weight:600}
+h1 .sub{font-size:12px; color:var(--dim); font-weight:400; margin-left:8px}
+.conn{display:flex; align-items:center; gap:8px; font-size:13px; color:var(--dim)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--err);display:inline-block}
+.dot.on{background:var(--ok)} .dot.wait{background:var(--warn)}
+
+main{display:grid; grid-template-columns:1fr 340px; gap:16px; padding:16px; align-items:start}
+@media (max-width:900px){ main{grid-template-columns:1fr} }
+
+.stage{min-width:0}
+.videoWrap{
+  position:relative; background:#000; border:1px solid var(--line);
+  border-radius:10px; overflow:hidden; line-height:0;
+}
+video{width:100%; height:auto; display:block}
+canvas{position:absolute; inset:0; width:100%; height:100%; pointer-events:none}
+video.mirror, canvas.mirror{transform:scaleX(-1)}
+.placeholder{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  color:var(--dim); font-size:15px; line-height:1.6;
+}
+
+/* 顶部告警条：管线没在跑 / 配置加载失败时，必须一眼看见，
+   而不是对着「画面在动、数字不动」猜 */
+.banner{
+  margin-top:12px; padding:10px 14px; border-radius:10px; font-size:13px;
+  border:1px solid var(--warn); background:rgba(255,176,32,.10); color:#ffd489;
+  line-height:1.55; word-break:break-all;
+}
+.banner.err{border-color:var(--err); background:rgba(255,92,92,.10); color:#ffb0b0}
+.banner b{color:#fff}
+.banner code{
+  background:rgba(0,0,0,.28); padding:1px 5px; border-radius:4px;
+  font-size:12px; word-break:break-all;
+}
+
+.controls{
+  display:flex; flex-wrap:wrap; gap:10px 14px; align-items:center;
+  margin-top:12px; padding:12px; background:var(--panel);
+  border:1px solid var(--line); border-radius:10px;
+}
+.controls label{display:flex; align-items:center; gap:6px; font-size:13px; color:var(--dim)}
+.controls select{
+  background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+  border-radius:6px; padding:5px 8px; font-size:13px; max-width:210px;
+}
+.controls label.chk{gap:4px}
+button{
+  background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+  border-radius:7px; padding:7px 16px; font-size:13px; cursor:pointer;
+}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled{opacity:.45; cursor:default}
+button.primary{background:var(--accent); border-color:var(--accent); color:#04101f; font-weight:600}
+
+.panel{display:flex; flex-direction:column; gap:12px; min-width:0}
+.card{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px}
+.card h2{font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:0 0 10px}
+.metrics{display:grid; grid-template-columns:1fr 1fr; gap:8px 10px}
+.metrics .k{display:block; font-size:11px; color:var(--dim)}
+.metrics .v{font-size:16px; font-variant-numeric:tabular-nums}
+.hint{font-size:11.5px; color:var(--dim); margin-top:8px; word-break:break-all}
+
+.hands{display:flex; gap:10px}
+.hand{
+  flex:1; background:var(--panel2); border:1px solid var(--line);
+  border-radius:8px; padding:8px 10px; display:flex; align-items:center;
+  justify-content:space-between; gap:8px;
+}
+.hand.on{border-color:var(--ok)}
+.hand b{font-size:13px; font-weight:500}
+.pill{font-size:11px; color:var(--dim)}
+.hand.on .pill{color:var(--ok)}
+
+ul.tasks,ul.events{list-style:none; margin:0; padding:0; max-height:190px; overflow:auto}
+ul.tasks li,ul.events li{
+  display:flex; justify-content:space-between; gap:8px;
+  padding:5px 0; border-bottom:1px solid var(--line); font-size:12.5px;
+}
+ul.tasks li:last-child,ul.events li:last-child{border-bottom:0}
+li.empty{color:var(--dim); justify-content:flex-start}
+.tag{font-size:11px; color:var(--dim)}
+.t-on{color:var(--ok)} .t-off{color:var(--dim)}
+ul.events li{color:var(--accent)}
+ul.events li.warn{color:var(--warn)}
+#snapshot{width:100%; border-radius:6px; display:block; background:#000}
+
+/* ---- 面部 / 身体的键值行与开合度条 ---- */
+.frow{
+  display:flex; justify-content:space-between; align-items:baseline;
+  gap:8px; padding:3px 0; font-size:12.5px;
+}
+.frow.small{font-size:11.5px}
+.fk{color:var(--dim); flex:0 0 auto}
+.fv{font-variant-numeric:tabular-nums; text-align:right; word-break:break-all}
+.bars{display:flex; flex-direction:column; gap:4px; margin:5px 0 4px}
+.bar{display:flex; align-items:center; gap:8px}
+.bar em{font-size:11px; color:var(--dim); font-style:normal; min-width:30px}
+.bar .track{
+  flex:1; height:8px; background:var(--panel2);
+  border:1px solid var(--line); border-radius:5px; overflow:hidden;
+}
+.bar .track i{
+  display:block; height:100%; width:0%;
+  background:#5ce1e6; transition:width .08s linear;
+}
+
+/* 延迟补偿滑杆 */
+.range{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--dim)}
+.range input[type=range]{width:100px; accent-color:var(--accent); cursor:pointer}
+.range span{font-variant-numeric:tabular-nums; min-width:46px; text-align:right}

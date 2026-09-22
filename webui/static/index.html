@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GestureMate · WebRTC 手势/面部/身体识别</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>GestureMate <span class="sub">WebRTC · 浏览器取流 + 服务端 mps 推理（手 / 面部 / 身体）</span></h1>
+  <div class="conn">
+    <span id="dot" class="dot"></span><span id="connText">未连接</span>
+  </div>
+</header>
+
+<main>
+  <!-- 左：视频 + 骨架叠加 -->
+  <section class="stage">
+    <div class="videoWrap" id="videoWrap">
+      <video id="video" playsinline autoplay muted></video>
+      <canvas id="overlay"></canvas>
+      <div id="placeholder" class="placeholder">点击下面的「开始」授权摄像头</div>
+    </div>
+
+    <div id="banner" class="banner" style="display:none"></div>
+
+    <div class="controls">
+      <button id="btnStart" class="primary">开始</button>
+      <button id="btnStop" disabled>停止</button>
+
+      <label>摄像头
+        <select id="camSelect"></select>
+      </label>
+      <label>分辨率
+        <select id="resSelect">
+          <option value="640x480">640×480</option>
+          <option value="1280x720" selected>1280×720</option>
+          <option value="1920x1080">1920×1080</option>
+        </select>
+      </label>
+      <label id="complexityRow">模型复杂度
+        <select id="complexity">
+          <option value="0">0 lite（最快）</option>
+          <option value="1" selected>1 medium（推荐）</option>
+          <option value="2">2 heavy（最准最慢）</option>
+        </select>
+      </label>
+      <label id="poseModelRow" style="display:none">姿态模型
+        <select id="poseModel">
+          <option value="lite" selected>lite（快）</option>
+          <option value="full">full（准，GPU 上几乎不额外花时间）</option>
+        </select>
+      </label>
+      <label>任务配置
+        <select id="configSelect"></select>
+      </label>
+      <label class="chk"><input type="checkbox" id="mirror" checked> 镜像</label>
+      <label class="chk"><input type="checkbox" id="drawHands" checked> 画手</label>
+      <label class="chk"><input type="checkbox" id="drawBody" checked> 画身体</label>
+      <label class="chk"><input type="checkbox" id="drawFace" checked> 画面部</label>
+      <label class="chk"><input type="checkbox" id="drawMesh"> 面部网格</label>
+      <label class="chk" id="serverViewRow"><input type="checkbox" id="showServerView"> 服务端视角</label>
+      <label class="range" title="骨架跟不上手就加大；骨架跑到手前面就减小">延迟补偿
+        <input type="range" id="leadMs" min="0" max="150" step="5" value="0">
+        <span id="leadMsVal">0 ms</span>
+      </label>
+    </div>
+  </section>
+
+  <!-- 右：状态 -->
+  <aside class="panel">
+    <div class="card">
+      <h2>服务端 mps</h2>
+      <div class="metrics">
+        <div><span class="k">FPS</span><span class="v" id="mFps">–</span></div>
+        <div><span class="k">推理</span><span class="v" id="mInfer">–</span></div>
+        <div><span class="k">单帧</span><span class="v" id="mLoop">–</span></div>
+        <div><span class="k">已处理</span><span class="v" id="mFrames">–</span></div>
+        <div><span class="k">丢帧</span><span class="v" id="mDropped">–</span></div>
+        <div><span class="k">结果延迟</span><span class="v" id="mLatency">–</span></div>
+        <div><span class="k">引擎</span><span class="v" id="mEngine">–</span></div>
+      </div>
+      <div class="hint" id="mSource"></div>
+    </div>
+
+    <div class="card">
+      <h2>面部识别</h2>
+      <div class="frow"><span class="fk">眼睛</span><span class="fv" id="fEye">未检出</span></div>
+      <div class="bars">
+        <div class="bar"><em>右眼</em><span class="track"><i id="fEyeRight"></i></span></div>
+        <div class="bar"><em>左眼</em><span class="track"><i id="fEyeLeft"></i></span></div>
+      </div>
+      <div class="frow"><span class="fk">眨眼</span><span class="fv" id="fBlink">–</span></div>
+      <div class="frow"><span class="fk">嘴巴</span><span class="fv" id="fMouth">–</span></div>
+      <div class="bars">
+        <div class="bar"><em>开合</em><span class="track"><i id="fMouthBar"></i></span></div>
+      </div>
+      <div class="frow"><span class="fk">头部朝向</span><span class="fv" id="fHead">–</span></div>
+      <div class="frow small"><span class="fk">yaw / pitch / roll</span><span class="fv" id="fPose">–</span></div>
+      <div class="hint" id="fNote"></div>
+    </div>
+
+    <div class="card">
+      <h2>身体</h2>
+      <div class="frow"><span class="fk">关键点</span><span class="fv" id="bCount">–</span></div>
+      <div class="frow"><span class="fk">举手</span><span class="fv" id="bHandsUp">–</span></div>
+      <div class="frow"><span class="fk">肩线</span><span class="fv" id="bTilt">–</span></div>
+    </div>
+
+    <div class="card">
+      <h2>手部</h2>
+      <div class="hands">
+        <div class="hand" id="handLeft"><b>左手</b><span class="pill">未检出</span></div>
+        <div class="hand" id="handRight"><b>右手</b><span class="pill">未检出</span></div>
+      </div>
+      <div class="hint" id="partsHint"></div>
+    </div>
+
+    <div class="card">
+      <h2>任务</h2>
+      <ul class="tasks" id="taskList"><li class="empty">（未加载配置）</li></ul>
+    </div>
+
+    <div class="card">
+      <h2>触发事件</h2>
+      <ul class="events" id="eventList"><li class="empty">（暂无）</li></ul>
+    </div>
+
+    <div class="card" id="serverViewCard" style="display:none">
+      <h2>服务端视角</h2>
+      <img id="snapshot" alt="server view">
+      <div class="hint">服务端真正喂给 mps 的画面（含骨架），约 1.5 fps</div>
+    </div>
+  </aside>
+</main>
+
+<script src="/static/mp_connections.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

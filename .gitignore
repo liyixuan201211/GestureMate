@@ -1,0 +1,22 @@
+.ipynb_checkpoints
+__pycache__
+data
+.vscode
+tasks/__pycache__
+output.json
+test
+node_modules
+package-lock.json
+package.json
+dataset
+error.log
+*.tags
+
+# ── 本次 git init 时补充 ─────────────────────────────────────────────
+# 项目此前**没有版本库**（见 README 顶部警告），改坏了没有回滚。
+# 下面两条排除「可重建、且体积很大」的东西，其余源码与资产全部入库，
+# 这样基线才真的能当安全网用：
+#   .venv/   931MB 的虚拟环境 —— run.sh 首次运行会自动重建
+#   .DS_Store  macOS 目录元数据
+.venv/
+.DS_Store

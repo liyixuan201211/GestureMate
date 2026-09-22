@@ -1,0 +1,18 @@
+[
+  {
+    "type": "detect",
+    "id": "left",
+    "bodyPart": ["leftHand"],
+    "frames": 3,
+    "start": true,
+    "nextTasks": [{"operate": "start", "id": "left"}]
+  },
+  {
+    "type": "detect",
+    "id": "right",
+    "bodyPart": ["rightHand"],
+    "frames": 3,
+    "start": true,
+    "nextTasks": [{"operate": "start", "id": "right"}]
+  }
+]
