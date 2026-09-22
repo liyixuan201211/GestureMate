@@ -25,7 +25,8 @@ BlazePose(33 点)、手掌检测与手部 21 点 x2。
 换环境后请先跑 tests/bench_engine.py 再决定。
 
 对外它返回一个与 Holistic 结果**同构**的对象
-（`face_landmarks` / `pose_landmarks` / `left_hand_landmarks` / `right_hand_landmarks`），
+（`face_landmarks` / `pose_landmarks` / `pose_world_landmarks` /
+`left_hand_landmarks` / `right_hand_landmarks`），
 所以 `Utils.drawLandmarks`、`Utils.extractLandmarks` 以及全部 Task 都不用改。
 
 镜像与左右手
@@ -121,23 +122,42 @@ class LandmarkEngine:
 
     # ------------------------------------------------------------ 推理
     def process(self, rgb):
-        """rgb: HxWx3 uint8 RGB。返回 LandmarkResult。"""
+        """rgb: HxWx3 uint8 RGB。返回 LandmarkResult。
+
+        除原有四个字段外还带一个 `pose_world_landmarks`（米制 3D 世界坐标）。
+        Holistic **本来就算它**，只是原实现没往外传；而
+        《向星而行-UE实现设计.md》§5.1 明确要求用它：
+
+        > 同时开启 `outputWorldLandmarks`。世界坐标是米制，能让蹲下/抬腿的
+        > 角度判据基本与机位无关，是低成本高收益的一项。
+
+        这一条对动作识别是决定性的：正面机位下蹲时，髋-膝-踝在**画面**里近乎
+        共线，2D 投影膝角恒 ≈180°，**根本判不出蹲**（见 action/features.py 的
+        knee_angle 与 action/detector.py 的 requireKnees）。
+        新增字段是**纯附加**的：老代码不读它就不受任何影响。
+        """
         if self._holistic is not None:
             r = self._holistic.process(rgb)
-            return LandmarkResult(face_landmarks=r.face_landmarks,
-                                  pose_landmarks=r.pose_landmarks,
-                                  left_hand_landmarks=r.left_hand_landmarks,
-                                  right_hand_landmarks=r.right_hand_landmarks)
+            return LandmarkResult(
+                face_landmarks=r.face_landmarks,
+                pose_landmarks=r.pose_landmarks,
+                pose_world_landmarks=getattr(r, "pose_world_landmarks", None),
+                left_hand_landmarks=r.left_hand_landmarks,
+                right_hand_landmarks=r.right_hand_landmarks)
 
         face = None
         pose = None
+        pose_world = None
         if self._pose is not None:
-            pose = self._pose.process(rgb).pose_landmarks
+            pr = self._pose.process(rgb)
+            pose = pr.pose_landmarks
+            pose_world = getattr(pr, "pose_world_landmarks", None)
         left = right = None
         if self._hands is not None:
             left, right = self._split_hands(self._hands.process(rgb))
         return LandmarkResult(face_landmarks=face,
                               pose_landmarks=pose,
+                              pose_world_landmarks=pose_world,
                               left_hand_landmarks=left,
                               right_hand_landmarks=right)
 
