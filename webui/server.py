@@ -487,6 +487,21 @@ class GestureWebApp:
                 self.pipeline.submit(lm)
             return
 
+        # ---- 动作识别：标定 / 参数（只有关键点模式有这套东西）
+        if kind == "actionCalib":
+            if isinstance(self.pipeline, LandmarkTaskEngine):
+                if data.get("cancel"):
+                    self.pipeline.cancelActionCalibration()
+                else:
+                    self.pipeline.startActionCalibration(data.get("ms", 2000))
+            return
+
+        if kind == "actionCfg":
+            if isinstance(self.pipeline, LandmarkTaskEngine):
+                for k, v in (data.get("opts") or {}).items():
+                    self.pipeline.setActionOption(k, v)
+            return
+
         if kind == "setComplexity":
             v = int(data.get("value", 1))
             if v in (0, 1, 2) and v != self.complexity:

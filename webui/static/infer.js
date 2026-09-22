@@ -7,12 +7,18 @@
  * 输出格式与 Python 侧保持一致（都是归一化 [x,y,z]，坐标系=相机原图）：
  *     { face: [[x,y,z] x468] | null,
  *       body: [[x,y,z] x33]  | null,
+ *       bodyWorld: [[x,y,z] x33] | null,   // 米制 3D 世界坐标，给动作识别算膝角
  *       leftHand: [...]|null, rightHand: [...]|null }
  * 这样服务端的 face_body.py 和 TaskController 可以一行不改地复用。
  *
  * 注意：这里**不镜像**。getUserMedia 给的就是未镜像的原图，直接喂进去、
  * 直接按原图坐标画，再用 CSS 把 video 和 canvas 一起镜像出「自拍感」。
  * （旧管线是「镜像推理 + 坐标还原」，绕了一圈；现在不需要了。）
+ *
+ * ⚠️ 上面这条"不镜像"直接决定动作识别的左右语义：坐标是**相机原图**，
+ *    所以画面 +x 是玩家的**左边** → `LandmarkTaskEngine` 里那个
+ *    `ActionDetector(mirrored_input=False)`。命令行版反而是 True
+ *    （TaskController 先镜像画面再推理）。这正是 §5.7 说最容易写反的地方。
  */
 
 const MP_DIR = "/static/mediapipe";
@@ -97,6 +103,10 @@ export async function createEngine({
       minPosePresenceConfidence: 0.5,
       minTrackingConfidence: 0.5,
       outputSegmentationMasks: false,
+      // 世界坐标（米制 3D）。动作识别的膝角判据必须用它：
+      // 正面机位下蹲时髋-膝-踝在画面里近乎共线，2D 投影膝角恒 ≈180°，
+      // **根本判不出蹲**。见《向星而行-UE实现设计.md》§5.1 与 action/features.py。
+      outputWorldLandmarks: true,
     }) : null;
 
   const hands = wantHands ? await make("hands", HandLandmarker, "hand_landmarker.task", {
@@ -112,7 +122,8 @@ export async function createEngine({
   return {
     /** 对一帧做推理。tsMs 必须单调递增。 */
     process(source, tsMs) {
-      const out = { face: null, body: null, leftHand: null, rightHand: null };
+      const out = { face: null, body: null, bodyWorld: null,
+                    leftHand: null, rightHand: null };
       let t0 = performance.now();
       if (face) {
         const r = face.detectForVideo(source, tsMs);
@@ -125,6 +136,10 @@ export async function createEngine({
         const r = pose.detectForVideo(source, tsMs);
         if (r && r.landmarks && r.landmarks.length)
           out.body = toXYZ(r.landmarks[0]);
+        // 世界坐标（米制）。缺了它动作识别就只能靠 2D 膝角 —— 正面机位下
+        // 那个量恒 ≈180°，蹲下判不出来（见文件顶部与 outputWorldLandmarks）。
+        if (r && r.worldLandmarks && r.worldLandmarks.length)
+          out.bodyWorld = toXYZ(r.worldLandmarks[0]);
       }
       const tPose = performance.now() - t0;
       t0 = performance.now();

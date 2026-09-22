@@ -108,6 +108,45 @@
       <div class="frow"><span class="fk">肩线</span><span class="fv" id="bTilt">–</span></div>
     </div>
 
+    <div class="card" id="actionCard">
+      <h2>动作识别 · 左移 / 右移 / 跳 / 蹲</h2>
+      <div class="frow"><span class="fk">状态</span><span class="fv" id="aState">等待关键点…</span></div>
+      <div class="frow"><span class="fk">卡在哪</span><span class="fv" id="aBlock">–</span></div>
+      <div class="frow small"><span class="fk">位移</span><span class="fv" id="aFeat">–</span></div>
+      <div class="frow small"><span class="fk">下肢</span><span class="fv" id="aFeat2">–</span></div>
+      <div class="alamps">
+        <span class="alamp" id="aLampLANE_L">左移</span>
+        <span class="alamp" id="aLampLANE_R">右移</span>
+        <span class="alamp" id="aLampJUMP">跳</span>
+        <span class="alamp" id="aLampSQUAT">蹲</span>
+      </div>
+      <div class="frow small"><span class="fk">最近</span><span class="fv" id="aLast">–</span></div>
+      <div class="frow small"><span class="fk">方向基准</span><span class="fv" id="aDir">–</span></div>
+
+      <div class="acfg">
+        <button id="btnActionCalib" class="primary">标定（站直 2 秒）</button>
+        <button id="btnActionCalibCancel">取消</button>
+        <label class="chk"><input type="checkbox" id="actionFlip"> 左右反向</label>
+        <label class="chk"><input type="checkbox" id="actionKnees"> 膝角门</label>
+      </div>
+      <label class="range" title="髋中点横向位移超过它就判换道（单位 = 躯干）">换道 laneOn
+        <input type="range" id="actionLaneOn" min="10" max="120" step="5" value="35">
+        <span id="actionLaneOnVal">0.35</span>
+      </label>
+      <label class="range" title="髋部抬高超过它就判跳（单位 = 躯干）">起跳 riseOn
+        <input type="range" id="actionRiseOn" min="3" max="60" step="1" value="12">
+        <span id="actionRiseOnVal">0.12</span>
+      </label>
+      <label class="range" title="髋部下沉超过它就判蹲（单位 = 躯干）">下蹲 sinkOn
+        <input type="range" id="actionSinkOn" min="10" max="80" step="2" value="28">
+        <span id="actionSinkOnVal">0.28</span>
+      </label>
+      <div class="hint">
+        先点「标定」并站直别动，再依次做动作。「卡在哪」会说当前没过哪道门。<br>
+        ⚠️ <b>左右方向必须真人验一次</b>：往左移一下，不该报「右移」；反了就勾「左右反向」。
+      </div>
+    </div>
+
     <div class="card">
       <h2>手部</h2>
       <div class="hands">

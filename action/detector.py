@@ -568,6 +568,9 @@ class ActionDetector:
         return {
             "present": self.present,
             "calibrated": self.calibrated,
+            # 标定中：WebUI 靠它显示倒计时（少了这个键，界面上标定期间会
+            # 错显示成"未标定" —— 这是交叉检查 app.js 读的键时抓出来的）。
+            "calibrating": self.calibrating,
             "posture": self.posture,
             "armed": self._transient_armed,
             "block": self.block,

@@ -556,6 +556,30 @@ def test_tracking_gap_is_not_an_action():
     print("PASS 26: 断 3 帧后重新捕获（位置差 0.5 躯干）不产生动作")
 
 
+def test_webui_state_contract():
+    """WebUI 前端从 `state.action` 里读的每个键，服务端都必须真的给。
+
+    这条是被**抓出来**的：前端读 `a.calibrating` 来显示标定倒计时，而
+    `ActionDetector.state` 里当时根本没有这个键 —— 界面上标定期间会静默地
+    错显示成「未标定」。JS 读不存在的字段不报错、只变 undefined，
+    所以只有做这种交叉检查才抓得到（截图也未必看得出）。
+    """
+    import re
+    js_path = os.path.join(ROOT, "webui/static/app.js")
+    if not os.path.exists(js_path):
+        print("SKIP: 没有 webui/static/app.js")
+        return
+    js = open(js_path, encoding="utf-8").read()
+    m = re.search(r"function updateActionPanel\(s\)\s*\{(.*?)\n\}", js, re.S)
+    assert m, "app.js 里找不到 updateActionPanel（改名了？）"
+    read = set(re.findall(r"\ba\.([A-Za-z_][A-Za-z0-9_]*)", m.group(1)))
+    provided = set(ActionDetector(ActionConfig()).state.keys())
+    provided |= {"events", "calibLeftMs"}       # 引擎额外塞进去的两个
+    missing = sorted(read - provided)
+    assert not missing, f"前端读了、但服务端 action state 里没有的键：{missing}"
+    print(f"PASS 28: WebUI 状态契约成立 —— 前端读的 {len(read)} 个键服务端全都提供")
+
+
 def test_real_footage_no_false_actions():
     """真实素材：① 脏标定必须被拒绝；② 就算强行用脏标定，也不许误报动作。
 
@@ -670,4 +694,5 @@ if __name__ == "__main__":
         test_real_footage_no_false_actions()
     else:
         print("（真实素材核查未跑；加 --real 打开）")
+    test_webui_state_contract()
     print("\n全部通过。")

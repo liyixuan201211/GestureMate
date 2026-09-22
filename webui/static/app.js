@@ -306,6 +306,8 @@ function sendLandmarks(r) {
       frameT: now / 1000,
       face: sendFace ? r.face : null,
       body: r.body,
+      // 世界坐标（米制）：动作识别的膝角判据要用它。很小（33 点），每帧都发。
+      bodyWorld: r.bodyWorld,
       leftHand: r.leftHand,
       rightHand: r.rightHand,
     }));
@@ -344,6 +346,7 @@ function handleServer(msg) {
     updateMetrics(s);
     updateFacePanel(s);
     updateBodyPanel(s);
+    updateActionPanel(s);
     if (msg.events && msg.events.length) appendEvents(msg.events);
   } else if (msg.type === "hello") {
     console.log("server hello", msg);
@@ -488,6 +491,59 @@ function updateBodyPanel(s) {
     ? `举手：${hu.left ? "左" : ""}${hu.right ? "右" : ""}`
     : "双手未举";
   $("bTilt").textContent = `${b.shoulderTiltDeg}°（${b.lean}）`;
+}
+
+/* ---- 动作识别（左移 / 右移 / 跳 / 蹲）----------------------------------
+   四个动作全在**服务端** action/ 包里判定（状态机 + 门控），前端只显示。
+   「卡在哪」那一行是现场调参时最有用的东西：它直接说当前没过哪道门。 */
+const ACTION_LAMPS = ["LANE_L", "LANE_R", "JUMP", "SQUAT"];
+
+function fmtNum(v, digits = 2) {
+  return (v == null || !isFinite(v)) ? "–" : Number(v).toFixed(digits);
+}
+
+function updateActionPanel(s) {
+  const a = s && s.action;
+  if (!a) return;
+
+  const bits = [a.calibrated ? "已标定" : (a.calibrating ? "标定中…" : "未标定")];
+  if (a.calibrated) {
+    bits.push(a.present
+      ? (a.posture === "crouch" ? "蹲下中" : "站立")
+      : "没看到人");
+  }
+  if (a.lowFps) bits.push("⚠️帧率低");
+  if (a.kneeWarn) bits.push("⚠️膝角门在2D下过不去");
+  $("aState").textContent = bits.join(" · ");
+
+  $("aBlock").textContent = a.calibrating
+    ? `请站直别动…还剩 ${Math.round(a.calibLeftMs || 0)} ms`
+    : (a.block || "—");
+
+  $("aFeat").textContent =
+    `laneDx ${fmtNum(a.laneDx)}　rise ${fmtNum(a.rise)}　sink ${fmtNum(a.sink)}`;
+  $("aFeat2").textContent =
+    `膝角 ${fmtNum(a.kneeL, 0)}/${fmtNum(a.kneeR, 0)}°（${a.kneeSource || "–"}）`
+    + `　举手 ${a.handsUp ? "是" : "否"}`;
+
+  // 四个灯：最近 1.5 秒内命中过就亮一下（用服务端打的墙上时间判）
+  const now = Date.now() / 1000;
+  const lit = {};
+  let last = null;
+  for (const e of (a.events || [])) {
+    if (last === null || (e.wall || 0) >= (last.wall || 0)) last = e;
+    if (now - (e.wall || 0) > 1.5) continue;
+    if (e.kind === "LANE") lit[e.dir === "left" ? "LANE_L" : "LANE_R"] = true;
+    else if (e.kind === "JUMP") lit.JUMP = true;
+    else if (e.kind === "SQUAT") lit.SQUAT = true;
+  }
+  for (const k of ACTION_LAMPS) {
+    const el = $("aLamp" + k);
+    if (el) el.classList.toggle("on", !!lit[k]);
+  }
+  $("aLast").textContent = last ? last.text : "—";
+  $("aDir").textContent = a.mirroredInput
+    ? "镜像输入（命令行语义）" : "相机原图（WebUI 语义）";
 }
 
 function appendEvents(events) {
@@ -751,6 +807,34 @@ function bindUI() {
     leadMs = Number(e.target.value) || 0;
     $("leadMsVal").textContent = leadMs + " ms";
   };
+
+  bindActionUI();
+}
+
+/* 动作识别的控件。判定全在服务端，这里只是把意图发过去。 */
+function bindActionUI() {
+  const cfg = (opts) => wsSendOrDC({ type: "actionCfg", opts });
+
+  $("btnActionCalib").onclick = () =>
+    wsSendOrDC({ type: "actionCalib", ms: 2000 });
+  $("btnActionCalibCancel").onclick = () =>
+    wsSendOrDC({ type: "actionCalib", cancel: true });
+
+  // ⚠️ 左右方向：WebUI 的坐标是**相机原图**（不镜像），默认就该是对的。
+  // 真人验一次；反了才勾这个 —— 勾上 = 把服务端的 mirrored_input 翻过来（§5.7）。
+  $("actionFlip").onchange = (e) => cfg({ mirror: e.target.checked });
+  // §5.4a 的膝角门。注意正面机位下 2D 膝角恒 ≈180°，勾了会判不出蹲；
+  // 只有世界坐标（bodyWorld）到位时才值得勾。
+  $("actionKnees").onchange = (e) => cfg({ requireKnees: e.target.checked });
+
+  for (const [id, key] of [["actionLaneOn", "laneOn"],
+                           ["actionRiseOn", "riseOn"],
+                           ["actionSinkOn", "sinkOn"]]) {
+    const el = $(id), out = $(id + "Val");
+    const show = () => { out.textContent = (el.value / 100).toFixed(2); };
+    el.oninput = () => { show(); cfg({ [key]: el.value / 100 }); };
+    show();
+  }
 }
 
 window.addEventListener("load", async () => {

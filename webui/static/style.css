@@ -123,3 +123,28 @@ ul.events li.warn{color:var(--warn)}
 .range{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--dim)}
 .range input[type=range]{width:100px; accent-color:var(--accent); cursor:pointer}
 .range span{font-variant-numeric:tabular-nums; min-width:46px; text-align:right}
+
+/* ---- 动作识别（左移 / 右移 / 跳 / 蹲）--------------------------------- */
+/* 四个动作的指示灯：命中时亮一下。判定在服务端，这里只是显示。 */
+.alamps{display:flex; gap:6px; margin:9px 0 5px}
+.alamp{
+  flex:1; text-align:center; padding:6px 0; border-radius:8px;
+  border:1px solid var(--line); background:var(--panel2); color:var(--dim);
+  font-size:12px; transition:background .1s, color .1s, border-color .1s;
+}
+.alamp.on{border-color:var(--ok); color:#fff; background:rgba(61,220,132,.20)}
+
+.acfg{display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:9px 0 5px}
+.acfg button{
+  font-size:12px; padding:5px 10px; border-radius:8px; cursor:pointer;
+  border:1px solid var(--line); background:var(--panel2); color:var(--fg);
+}
+.acfg button:hover{border-color:var(--accent)}
+.acfg button.primary{
+  border-color:var(--accent); background:rgba(78,161,255,.18); color:#fff;
+}
+.acfg label.chk{font-size:12px; color:var(--dim); display:flex; align-items:center; gap:4px}
+
+/* 侧栏窄，三个阈值滑杆让它换行、把滑杆本身拉满 */
+#actionCard .range{flex-wrap:wrap; margin-top:4px}
+#actionCard .range input[type=range]{flex:1; width:auto; min-width:80px}

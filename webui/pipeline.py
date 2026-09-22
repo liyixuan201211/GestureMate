@@ -40,6 +40,9 @@ from Utils import drawLandmarks, extractLandmarks, generateNullLandmarks
 from TaskController import TaskController
 from face_body import FaceBodyAnalyzer
 
+# 动作识别（左移 / 右移 / 跳 / 蹲）—— 纯 Python，只依赖标准库
+from action import ActionConfig, ActionDetector, describe_event
+
 ALL_PARTS = ("face", "body", "leftHand", "rightHand")
 #: WebUI 永远要这几组（画脸/画身体/画手 + 语义识别），与任务配置无关
 UI_PARTS = ("face", "body", "leftHand", "rightHand")
@@ -482,7 +485,14 @@ def build_source(kind, video=None, camera_index=None):
 
 
 #: 各组关键点的上限（人脸带虹膜是 478，MediaPipe Tasks 默认给 468）
-LANDMARK_LIMITS = {"face": 478, "body": 33, "leftHand": 21, "rightHand": 21}
+LANDMARK_LIMITS = {"face": 478, "body": 33, "leftHand": 21, "rightHand": 21,
+                   "bodyWorld": 33}
+
+#: **不能**夹到 [0,1] 的组。`bodyWorld` 是米制 3D 世界坐标（原点在髋中心），
+#: 数值本来就在 0 附近正负来回 —— 夹到 [0,1] 会把它整个毁掉。
+#: 动作识别用它算膝角（正面机位下 2D 膝角恒 ≈180°，看不出蹲，
+#: 见 action/features.py 的 knee_angle 与 §5.1）。
+UNCLAMPED_KEYS = {"bodyWorld"}
 
 
 def parse_landmarks(msg):
@@ -491,7 +501,8 @@ def parse_landmarks(msg):
     浏览器算是「半个信任边界」：同机同源，但依然是外部输入。这里做三件事：
       1) 按上限截断点数
       2) 强制转 float、丢掉非法项
-      3) 坐标夹到 [0,1]（z 允许为负，它是相对深度）
+      3) 坐标夹到 [0,1]（z 允许为负，它是相对深度）——
+         **除了** `UNCLAMPED_KEYS` 里的组（世界坐标是米制，夹了就废）
     少任何一步，一个 NaN 就能顺着 TaskController 把整条任务链搞崩。
     """
     out = {}
@@ -500,6 +511,7 @@ def parse_landmarks(msg):
         if not isinstance(v, list):
             out[key] = None
             continue
+        clamp = key not in UNCLAMPED_KEYS
         pts = []
         for p in v[:limit]:
             if not isinstance(p, (list, tuple)) or len(p) < 2:
@@ -511,7 +523,9 @@ def parse_landmarks(msg):
                 continue
             if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
                 continue
-            pts.append([min(1.0, max(0.0, x)), min(1.0, max(0.0, y)), z])
+            if clamp:
+                x, y = min(1.0, max(0.0, x)), min(1.0, max(0.0, y))
+            pts.append([x, y, z])
         out[key] = pts or None
     return out
 
@@ -553,6 +567,19 @@ class LandmarkTaskEngine(threading.Thread):
         self.need |= set(ALL_PARTS)
 
         self.analyzer = FaceBodyAnalyzer()
+
+        # ── 动作识别：左移 / 右移 / 跳 / 蹲（action/ 包）───────────────────
+        # ⚠️ mirrored_input=False —— WebUI 这条路和命令行**相反**，不是笔误：
+        # 浏览器把「未镜像的相机原图」直接喂给 MediaPipe（见 static/infer.js
+        # 顶部注释："这里不镜像……坐标系=相机原图"），所以画面 +x 是玩家的**左边**。
+        # 命令行版是 TaskController 先镜像画面再推理，那边才是 True。
+        # 这正是 §5.7 说"最容易写反"的那一处；界面上有开关，真人一验就知道。
+        self.actionMirror = False
+        self.action = ActionDetector(ActionConfig(),
+                                     mirrored_input=self.actionMirror)
+        self.actionEvents = []           # 最近的动作事件（给前端显示）
+        self._actionCalibUntil = None    # 标定截止时刻（perf_counter 秒）
+
         self.events = []
         self._lock = threading.Lock()
         self._stopEvent = threading.Event()
@@ -571,6 +598,7 @@ class LandmarkTaskEngine(threading.Thread):
             "body": None,
             "face": None,
             "features": None,
+            "action": None,           # 动作识别：四动作状态 + 最近事件
             "tasks": {},
             "engine": "browser",
             "parts": sorted(self.need),
@@ -663,6 +691,13 @@ class LandmarkTaskEngine(threading.Thread):
                 except Exception as e:
                     logging.error(f"[webui] 任务执行异常: {type(e).__name__}: {e}")
 
+                # 动作识别：把这一帧的 body 喂给四个动作的状态机。
+                # 只依赖 action/ 包（标准库），这里耗时 <0.1ms。
+                try:
+                    self._stepAction(lm)
+                except Exception as e:
+                    logging.debug(f"[webui] 动作识别失败: {type(e).__name__}: {e}")
+
                 loopMs = (time.perf_counter() - t0) * 1e3
                 emaLoop = loopMs if emaLoop == 0 else emaLoop * 0.9 + loopMs * 0.1
                 fpsN += 1
@@ -696,6 +731,95 @@ class LandmarkTaskEngine(threading.Thread):
         finally:
             self._publish(running=False)
             logging.getLogger().removeHandler(self._logHandler)
+
+    # ---------------------------------------------------------------- 动作识别
+    def _stepAction(self, lm):
+        """把一帧关键点喂给动作识别，并把结果写进 state（供前端显示）。
+
+        时间戳用 `perf_counter`（单调毫秒）—— 动作判定全靠"持续了多久"，
+        墙上时钟被 NTP 拨一下就会误判。
+        """
+        nowMs = time.perf_counter() * 1e3
+
+        # 标定到点自动收口：前端只负责点一下「开始标定」，不必再点第二次。
+        # 收口可能失败（人没站住），理由会进 state["action"]["block"]。
+        if self.action.calibrating and self._actionCalibUntil is not None \
+                and nowMs >= self._actionCalibUntil * 1e3:
+            self._actionCalibUntil = None
+            self._onActionEvents(self.action.finish_calibration(nowMs))
+
+        evs = self.action.update(nowMs, lm.get("body"), lm.get("bodyWorld"))
+        self._onActionEvents(evs)
+
+        st = self.action.state
+        st["events"] = self.actionEvents[-12:]
+        st["calibLeftMs"] = (max(0.0, self._actionCalibUntil * 1e3 - nowMs)
+                             if self._actionCalibUntil else 0.0)
+        with self._lock:
+            self._state["action"] = st
+
+    def _onActionEvents(self, evs):
+        for e in evs:
+            row = e.to_dict()
+            row["text"] = describe_event(e)
+            # 墙上时间，只给前端判"刚刚亮过"用。
+            # （e.t 是单调时钟毫秒，跨进程/跨刷新没有意义，不能拿它比。）
+            row["wall"] = time.time()
+            self.actionEvents.append(row)
+            logging.info(f"[动作] {describe_event(e)}")
+        # 只留最近 60 条，别让长时间运行把内存涨上去
+        if len(self.actionEvents) > 60:
+            del self.actionEvents[:-60]
+
+    def startActionCalibration(self, ms=2000.0):
+        """开始标定（请玩家站直别动）。到点由主循环自动收口。"""
+        ms = max(300.0, min(10000.0, float(ms)))
+        self.action.begin_calibration()
+        self._actionCalibUntil = time.perf_counter() + ms / 1e3
+        self.actionEvents.clear()
+        logging.info(f"[webui] 动作识别：开始标定 {ms:.0f}ms（请站直别动）")
+
+    def cancelActionCalibration(self):
+        """放弃本次标定（玩家点「取消」或中途走开）。"""
+        self._actionCalibUntil = None
+        self.action.calibrating = False
+        self.action._cal.reset()
+        self.action.block = "标定已取消"
+
+    #: 允许前端改的布尔开关（白名单，不做任意 setattr）
+    ACTION_BOOL_OPTS = ("requireKnees", "zEnabled", "laneBlockWhenHandsUp",
+                        "laneRequireAirborne")
+    #: 允许前端调的几个主阈值（真人现场重调用的，区间兜住防手滑）
+    ACTION_NUM_RANGES = {
+        "laneOn": (0.10, 1.20), "riseOn": (0.03, 0.60), "sinkOn": (0.10, 0.80),
+        "vOn": (1.0, 30.0), "vOnZ": (1.0, 30.0),
+    }
+
+    def setActionOption(self, key, value):
+        """前端改动作识别的一个开关/阈值。返回是否被接受。"""
+        ok = False
+        if key == "mirror":
+            # 唯一那个镜像开关（§5.7）。翻它不需要重新标定 ——
+            # 基线管的是"位置"，镜像只管"方向语义"。
+            self.actionMirror = bool(value)
+            self.action.mirrored_input = self.actionMirror
+            ok = True
+        elif key in self.ACTION_BOOL_OPTS:
+            setattr(self.action.cfg, key, bool(value))
+            ok = True
+        elif key in self.ACTION_NUM_RANGES:
+            lo, hi = self.ACTION_NUM_RANGES[key]
+            try:
+                setattr(self.action.cfg, key,
+                        max(lo, min(hi, float(value))))
+                ok = True
+            except (TypeError, ValueError):
+                ok = False
+        if ok:
+            logging.info(f"[webui] 动作识别参数 {key} -> {value}")
+            with self._lock:
+                self._state["action"] = self.action.state
+        return ok
 
     def stop(self):
         self._stopEvent.set()
